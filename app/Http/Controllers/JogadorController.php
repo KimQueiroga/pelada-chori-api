@@ -90,6 +90,46 @@ class JogadorController extends Controller
         return response()->json($jogadoresParaVotar);
     }
 
+    public function meusDados()
+    {
+        $user = Auth::user();
+        $jogador = $user->jogador;
+
+        if (!$jogador) {
+            return response()->json(['error' => 'Jogador não encontrado'], 404);
+        }
+
+        // Agrupa e calcula a média das notas em Votos onde o jogador foi o destino
+        $notas = Voto::where('jogador_destino_id', $jogador->id)
+            ->selectRaw('
+                AVG(tecnica) as tecnica,
+                AVG(inteligencia) as inteligencia,
+                AVG(velocidade_preparo) as velocidade_preparo,
+                AVG(disciplina_tatica) as disciplina_tatica,
+                AVG(poder_ofensivo) as poder_ofensivo,
+                AVG(poder_defensivo) as poder_defensivo,
+                AVG(fundamentos_basicos) as fundamentos_basicos
+            ')
+            ->first();
+
+        $notasArray = collect($notas)->filter(fn($n) => !is_null($n))->map(function ($value, $key) {
+            return ['nome' => ucfirst(str_replace('_', ' ', $key)), 'nota' => round($value, 1)];
+        })->values();
+
+        $soma = $notasArray->sum('nota');
+        $media = $notasArray->count() ? $soma / $notasArray->count() : 0;
+
+        return response()->json([
+            'jogador' => $jogador,
+            'notas' => $notasArray,
+            'soma' => round($soma, 1),
+            'media' => round($media, 2),
+        ]);
+    }
+
+
+
+
 
 }
 
