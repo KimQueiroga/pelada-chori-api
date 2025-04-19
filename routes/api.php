@@ -17,6 +17,8 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/jogador', [JogadorController::class, 'store']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/jogadores', [JogadorController::class, 'index']);
+    Route::get('/meus-dados', [JogadorController::class, 'meusDados']);
+
     // Votações
     Route::get('/votacoes', [VotacaoController::class, 'index']);
     Route::get('/votacao-ativa', [VotacaoController::class, 'ativa']);
