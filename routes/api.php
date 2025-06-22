@@ -37,8 +37,10 @@ Route::middleware(['auth:api'])->group(function () {
         Route::prefix('sorteios')->group(function () {
         Route::post('/', [SorteioController::class, 'store']);
         Route::get('/', [SorteioController::class, 'index']);
-        Route::get('/{id}', [SorteioController::class, 'show']);
+       // Route::get('/{id}', [SorteioController::class, 'show']);
         Route::delete('/{id}', [SorteioController::class, 'destroy']);
+        Route::get('/ativos', [SorteioController::class, 'ativos']);
+
 
         Route::prefix('/{sorteio}/times')->group(function () {
             Route::post('/', [SorteioTimeController::class, 'store']);

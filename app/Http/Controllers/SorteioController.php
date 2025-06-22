@@ -31,4 +31,11 @@ class SorteioController extends Controller
         ]));
     }
 
+    // SorteioController.php
+    public function ativos()
+    {
+        $hoje = now()->toDateString();
+        return Sorteio::whereDate('data', '>=', $hoje)->with('times.jogadores')->get();
+    }
+
 }
