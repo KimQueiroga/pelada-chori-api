@@ -6,6 +6,11 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JogadorController;
 use App\Http\Controllers\VotacaoController;
 use App\Http\Controllers\VotoController;
+use App\Http\Controllers\SorteioController;
+use App\Http\Controllers\SorteioTimeController;
+use App\Http\Controllers\SorteioTimeJogadorController;
+use App\Http\Controllers\SorteioVotoController;
+
 
 
 // ROTAS PÚBLICAS
@@ -27,7 +32,28 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/votos', [VotoController::class, 'store']);
     Route::get('/votacoes/{id}/medias', [VotacaoController::class, 'medias']);
     Route::get('/votos/me', [App\Http\Controllers\VotoController::class, 'meusVotos']);
+    // sorteio
+        Route::prefix('sorteios')->group(function () {
+        Route::post('/', [SorteioController::class, 'store']);
+        Route::get('/', [SorteioController::class, 'index']);
+        Route::get('/{id}', [SorteioController::class, 'show']);
+        Route::delete('/{id}', [SorteioController::class, 'destroy']);
 
+        Route::prefix('/{sorteio}/times')->group(function () {
+            Route::post('/', [SorteioTimeController::class, 'store']);
+            Route::get('/', [SorteioTimeController::class, 'index']);
+            
+            Route::prefix('/{time}/jogadores')->group(function () {
+                Route::post('/', [SorteioTimeJogadorController::class, 'store']);
+                Route::get('/', [SorteioTimeJogadorController::class, 'index']);
+            });
+        });
+
+        Route::prefix('/{sorteio}/votos')->group(function () {
+            Route::post('/', [SorteioVotoController::class, 'store']);
+            Route::get('/', [SorteioVotoController::class, 'index']);
+        });
+    });
 });
 
 // EXEMPLO DE ROTA AUTH PADRÃO
