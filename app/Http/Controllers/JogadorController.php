@@ -127,9 +127,9 @@ class JogadorController extends Controller
         ]);
     }
 
-
-
-
-
+    public function todos()
+    {
+        return response()->json(Jogador::orderBy('apelido')->get());
+    }
 }
 

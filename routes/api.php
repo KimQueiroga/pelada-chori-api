@@ -23,6 +23,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/jogadores', [JogadorController::class, 'index']);
     Route::get('/meus-dados', [JogadorController::class, 'meusDados']);
+    Route::get('/jogadores/todos', [JogadorController::class, 'todos']);
 
     // Votações
     Route::get('/votacoes', [VotacaoController::class, 'index']);
