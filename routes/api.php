@@ -35,13 +35,12 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('/votos/me', [App\Http\Controllers\VotoController::class, 'meusVotos']);
     // sorteio
         Route::prefix('sorteios')->group(function () {
-        Route::get('/ativos', [SorteioController::class, 'ativos']);
-        Route::get('/', [SorteioController::class, 'index']);
-        Route::get('/{id}', [SorteioController::class, 'show']);
-        Route::delete('/{id}', [SorteioController::class, 'destroy']);
-
-
-
+    Route::get('/ativos', [SorteioController::class, 'ativos']);
+    Route::get('/', [SorteioController::class, 'index']);
+    Route::post('/', [SorteioController::class, 'store']); // ✅ ADICIONE ESTA LINHA
+    Route::get('/{id}', [SorteioController::class, 'show']);
+    Route::delete('/{id}', [SorteioController::class, 'destroy']);
+    // ... outros grupos aninhados
         Route::prefix('/{sorteio}/times')->group(function () {
             Route::post('/', [SorteioTimeController::class, 'store']);
             Route::get('/', [SorteioTimeController::class, 'index']);
