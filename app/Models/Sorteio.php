@@ -10,7 +10,20 @@ class Sorteio extends Model
     use HasFactory;
 
     protected $fillable = [
-        'data', 'quantidade_times', 'quantidade_jogadores_time', 'numero', 'descricao'
+        'data', 
+        'quantidade_times', 
+        'quantidade_jogadores_time', 
+        'numero', 
+        'descricao',
+         // novos:
+        'tentativa',
+        'status',
+        'em_votacao',                     
+    ];
+
+    protected $casts = [
+        'data' => 'date',
+        'em_votacao' => 'boolean',
     ];
 
     protected $dates = ['data'];
