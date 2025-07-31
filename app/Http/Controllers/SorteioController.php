@@ -3,8 +3,15 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;      // se estiver usando DB::transaction
+use Carbon\Carbon;                      // <-- ADICIONE ESTE
 use App\Models\Sorteio;
+use App\Models\SorteioTime;
+use App\Models\SorteioTimeJogador;
 use App\Models\Voto;
+use App\Models\SorteioVoto;
+
+use App\Models\Jogador;
 
 
 class SorteioController extends Controller
@@ -81,7 +88,640 @@ class SorteioController extends Controller
     public function ativos()
     {
         $hoje = now()->toDateString();
-        return Sorteio::whereDate('data', '>=', $hoje)->with('times.jogadores')->get();
+        return Sorteio::whereDate('data', '>=', $hoje)
+            ->where('em_votacao', true)
+            ->with('times.jogadores')
+            ->orderBy('data')
+            ->orderBy('numero')
+            ->get();
     }
 
+
+        // ... seus métodos show, index, store, ativos
+
+    /**
+     * Rota única que:
+     * 1) cria dois sorteios na mesma data (nº 1 e nº 2)
+     * 2) cria os times em cada sorteio
+     * 3) distribui automaticamente os jogadores
+     *
+     * Body esperado (JSON):
+     * {
+     *   "data": "2025-06-25",
+     *   "descricao": "Sorteio semanal",
+     *   "quantidade_times": 3,
+     *   "quantidade_jogadores_time": 5,
+     *   "jogadores_ids": [1,2,3,4,5,6,7,8,9,10,11,...],
+     *   "estrategia": "balanceado" | "random"    // opcional, default "balanceado"
+     * }
+     */
+    public function storeDuploCompleto(Request $request)
+    {
+        $request->validate([
+            'data' => 'required|date',
+            'descricao' => 'nullable|string',
+            'quantidade_times' => 'required|integer|min:1',
+            'quantidade_jogadores_time' => 'required|integer|min:1',
+            'jogadores_ids' => 'required|array|min:1',
+            'jogadores_ids.*' => 'integer|exists:jogadores,id',
+        ]);
+
+        $data = Carbon::parse($request->input('data'))->toDateString();
+
+        // próxima tentativa do dia
+        $nextTentativa = (Sorteio::whereDate('data', $data)->max('tentativa') ?? 0) + 1;
+
+        // distribui (exemplo simples/aleatório equilibrado por média futura)
+        [$times1, $times2] = $this->distribuirDuplo(
+            $request->input('jogadores_ids'),
+            (int)$request->input('quantidade_times'),
+            (int)$request->input('quantidade_jogadores_time')
+        );
+
+        DB::beginTransaction();
+        try {
+            // cria nº1
+            $s1 = Sorteio::create([
+                'data' => $data,
+                'descricao' => $request->input('descricao'),
+                'numero' => 1,
+                'quantidade_times' => $request->input('quantidade_times'),
+                'quantidade_jogadores_time' => $request->input('quantidade_jogadores_time'),
+                'tentativa' => $nextTentativa,
+                'status' => 'rascunho',
+                'em_votacao' => false,
+            ]);
+            $this->persistirTimesEJogadores($s1, $times1);
+
+            // cria nº2
+            $s2 = Sorteio::create([
+                'data' => $data,
+                'descricao' => $request->input('descricao'),
+                'numero' => 2,
+                'quantidade_times' => $request->input('quantidade_times'),
+                'quantidade_jogadores_time' => $request->input('quantidade_jogadores_time'),
+                'tentativa' => $nextTentativa,
+                'status' => 'rascunho',
+                'em_votacao' => false,
+            ]);
+            $this->persistirTimesEJogadores($s2, $times2);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Par de sorteios criado como rascunho.',
+                'tentativa' => $nextTentativa,
+                'sorteio_1' => $s1->load('times.jogadores'),
+                'sorteio_2' => $s2->load('times.jogadores'),
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    
+    /**
+     * Calcula a média global do jogador com base nos votos.
+     * Retorna array [jogador_id => media_float]
+     */
+    private function mediasJogadores(array $jogadorIds): array
+    {
+        if (empty($jogadorIds)) return [];
+
+        $aggs = Voto::whereIn('jogador_destino_id', $jogadorIds)
+            ->selectRaw('
+                jogador_destino_id,
+                AVG(tecnica) as tecnica,
+                AVG(inteligencia) as inteligencia,
+                AVG(velocidade_preparo) as velocidade_preparo,
+                AVG(disciplina_tatica) as disciplina_tatica,
+                AVG(poder_ofensivo) as poder_ofensivo,
+                AVG(poder_defensivo) as poder_defensivo,
+                AVG(fundamentos_basicos) as fundamentos_basicos
+            ')
+            ->groupBy('jogador_destino_id')
+            ->get()
+            ->keyBy('jogador_destino_id');
+
+        $out = [];
+        foreach ($jogadorIds as $id) {
+            $n = $aggs->get($id);
+            if (!$n) { $out[$id] = 0.0; continue; }
+
+            $valores = collect([
+                $n->tecnica, $n->inteligencia, $n->velocidade_preparo, $n->disciplina_tatica,
+                $n->poder_ofensivo, $n->poder_defensivo, $n->fundamentos_basicos,
+            ])->filter(fn($v) => !is_null($v));
+
+            $media = $valores->count() ? $valores->avg() : 0.0;
+            $out[$id] = round($media, 2);
+        }
+        return $out;
+        // (se quiser inclusive buscar jogadores sem votos e setar 0, isso já cobre)
+    }
+
+    /**
+     * Distribuição por serpentina balanceada.
+     * Retorna: [numTime => [ ['id'=>, 'media'=>], ... ], ...]
+     */
+    private function distribuirBalanceadoSerpentina(array $jogadoresOrdenados, int $qtTimes, int $qtPorTime): array
+    {
+        $times = [];
+        for ($i = 1; $i <= $qtTimes; $i++) $times[$i] = [];
+
+        $idx = 0;
+        $totalCap = $qtTimes * $qtPorTime;
+        $players = array_slice($jogadoresOrdenados, 0, $totalCap);
+
+        // serpentina: ida e volta
+        while (!empty($players)) {
+            // ida
+            for ($t = 1; $t <= $qtTimes; $t++) {
+                if (empty($players)) break;
+                if (count($times[$t]) < $qtPorTime) {
+                    $times[$t][] = array_shift($players);
+                }
+            }
+            // volta
+            for ($t = $qtTimes; $t >= 1; $t--) {
+                if (empty($players)) break;
+                if (count($times[$t]) < $qtPorTime) {
+                    $times[$t][] = array_shift($players);
+                }
+            }
+        }
+
+        return $times;
+    }
+
+    /**
+     * Distribuição aleatória com semente fixa.
+     */
+    private function distribuirRandom(array $jogadoresOrdenados, int $qtTimes, int $qtPorTime, int $seed): array
+    {
+        $times = [];
+        for ($i = 1; $i <= $qtTimes; $i++) $times[$i] = [];
+
+        $cap = $qtTimes * $qtPorTime;
+        $pool = array_slice($jogadoresOrdenados, 0, $cap);
+
+        // embaralha determinístico
+        mt_srand($seed);
+        usort($pool, function($a, $b) { return mt_rand(-1,1); });
+
+        $ptr = 0;
+        for ($i = 0; $i < $qtPorTime; $i++) {
+            for ($t = 1; $t <= $qtTimes; $t++) {
+                if ($ptr >= count($pool)) break 2;
+                $times[$t][] = $pool[$ptr++];
+            }
+        }
+
+        return $times;
+    }
+
+    public function publicarPar(Request $request)
+    {
+        $request->validate([
+            'sorteio_id_1' => 'required|integer|exists:sorteios,id',
+            'sorteio_id_2' => 'required|integer|exists:sorteios,id',
+        ]);
+
+        $s1 = Sorteio::with('times')->findOrFail($request->sorteio_id_1);
+        $s2 = Sorteio::with('times')->findOrFail($request->sorteio_id_2);
+
+        // validações de paridade
+        if ($s1->data->toDateString() !== $s2->data->toDateString()) {
+            return response()->json(['error' => 'Os dois sorteios devem ser do mesmo dia.'], 422);
+        }
+        if ($s1->tentativa !== $s2->tentativa) {
+            return response()->json(['error' => 'Os dois sorteios devem ser da mesma tentativa.'], 422);
+        }
+        if (!in_array($s1->numero, [1,2]) || !in_array($s2->numero, [1,2]) || $s1->numero === $s2->numero) {
+            return response()->json(['error' => 'Deve haver um nº1 e um nº2.'], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $data = $s1->data->toDateString();
+
+            // despublica/descarta todos do mesmo dia (por segurança)
+            Sorteio::whereDate('data', $data)->update([
+                'em_votacao' => false,
+                'status' => DB::raw("CASE WHEN status='em_votacao' THEN 'encerrado' ELSE status END"),
+            ]);
+
+            // publica apenas o par escolhido
+            $s1->update(['em_votacao' => true, 'status' => 'em_votacao']);
+            $s2->update(['em_votacao' => true, 'status' => 'em_votacao']);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Par publicado para votação com sucesso.',
+                'data' => $data,
+                'tentativa' => $s1->tentativa,
+                'publicados' => [$s1->id, $s2->id],
+            ], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function porData(Request $request)
+    {
+        $dataStr = $request->query('data', now()->toDateString());
+        $somenteVotacao = filter_var($request->query('somente_votacao', false), FILTER_VALIDATE_BOOLEAN);
+
+        try {
+            $data = Carbon::parse($dataStr)->toDateString();
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Data inválida. Use YYYY-MM-DD.'], 422);
+        }
+
+        $q = Sorteio::whereDate('data', $data)->with('times.jogadores')->orderBy('numero');
+        if ($somenteVotacao) {
+            $q->where('em_votacao', true);
+        }
+        return response()->json($q->get());
+    }
+
+    /**
+ * Calcula a nota média de cada jogador (média das 7 métricas de Voto).
+ * Para quem não tem votos, usa 3.0 como padrão.
+ *
+ * @param  int[] $ids
+ * @return array<int,float> mapa [jogador_id => nota_media]
+ */
+    private function calcularNotasJogadores(array $ids): array
+    {
+        if (empty($ids)) return [];
+
+        // Default 3.0 para todos
+        $notaPorId = array_fill_keys($ids, 3.0);
+
+        // Agrupa e calcula AVG de cada métrica por jogador_destino_id
+        $registros = Voto::select(
+                'jogador_destino_id',
+                DB::raw('AVG(tecnica) as tecnica'),
+                DB::raw('AVG(inteligencia) as inteligencia'),
+                DB::raw('AVG(velocidade_preparo) as velocidade_preparo'),
+                DB::raw('AVG(disciplina_tatica) as disciplina_tatica'),
+                DB::raw('AVG(poder_ofensivo) as poder_ofensivo'),
+                DB::raw('AVG(poder_defensivo) as poder_defensivo'),
+                DB::raw('AVG(fundamentos_basicos) as fundamentos_basicos')
+            )
+            ->whereIn('jogador_destino_id', $ids)
+            ->groupBy('jogador_destino_id')
+            ->get();
+
+        foreach ($registros as $r) {
+            $valores = array_filter([
+                $r->tecnica,
+                $r->inteligencia,
+                $r->velocidade_preparo,
+                $r->disciplina_tatica,
+                $r->poder_ofensivo,
+                $r->poder_defensivo,
+                $r->fundamentos_basicos,
+            ], fn($v) => !is_null($v));
+
+            if (count($valores) > 0) {
+                $notaPorId[$r->jogador_destino_id] = array_sum($valores) / count($valores);
+            }
+        }
+
+        return $notaPorId;
+    }
+    /**
+ * Monta times equilibrados via snake-draft com leve aleatoriedade por "tier".
+ *
+ * @param  int[]              $ids
+ * @param  array<int,float>   $ratings  mapa [jogador_id => nota_media]
+ * @return array<int,array{nome:string,jogadores:int[]}>
+ */
+    /**
+ * Monta times equilibrados por posição (Defesa/Meio/Ataque) + snake-draft com leve aleatoriedade.
+ *
+ * Regras:
+ *  - Se houver jogadores suficientes por posição, cada time recebe ao menos 1 Defesa, 1 Meio e 1 Ataque.
+ *  - Em seguida, preenche as vagas restantes com snake-draft por tiers, preservando equilíbrio por rating.
+ *  - Jogadores sem posição caem em "Outros" e são distribuídos no preenchimento geral.
+ *
+ * @param  int[]              $ids                 Lista de IDs de jogadores selecionados
+ * @param  array<int,float>   $ratings            mapa [jogador_id => nota_media]
+ * @param  int                $qtdTimes
+ * @param  int                $qtdPorTime
+ * @param  int|null           $seed               Semente opcional para variação reprodutível
+ * @return array<int,array{nome:string,jogadores:int[]}>
+ */
+    private function montarTimes(array $ids, array $ratings, int $qtdTimes, int $qtdPorTime, ?int $seed = null): array
+    {
+        if ($seed !== null) {
+            mt_srand($seed);
+        }
+
+        // Capacidade total
+        $cap = $qtdTimes * $qtdPorTime;
+        if (count($ids) > $cap) {
+            $ids = array_slice($ids, 0, $cap);
+        }
+
+        // Mapa de posições (id => 'Defesa'|'Meio'|'Ataque'|null)
+        $posicoes = Jogador::whereIn('id', $ids)->pluck('posicao', 'id')->toArray();
+
+        // Buckets de times
+        // - ids: jogadores já alocados
+        // - pos: contagem por posição (para debug/garantia)
+        $buckets = [];
+        for ($i = 0; $i < $qtdTimes; $i++) {
+            $buckets[$i] = [
+                'ids' => [],
+                'pos' => ['Defesa' => 0, 'Meio' => 0, 'Ataque' => 0],
+            ];
+        }
+
+        // Grupos por posição
+        $grupos = [
+            'Defesa' => [],
+            'Meio'   => [],
+            'Ataque' => [],
+            'Outros' => [], // nulos / qualquer outro valor
+        ];
+
+        foreach ($ids as $id) {
+            $p = $posicoes[$id] ?? null;
+            if ($p === 'Defesa' || $p === 'Meio' || $p === 'Ataque') {
+                $grupos[$p][] = $id;
+            } else {
+                $grupos['Outros'][] = $id;
+            }
+        }
+
+        // Ordena cada grupo por rating desc (empate: aleatório leve)
+        $ordenador = function (&$arr) use ($ratings) {
+            usort($arr, function ($a, $b) use ($ratings) {
+                $cmp = ($ratings[$b] ?? 3.0) <=> ($ratings[$a] ?? 3.0);
+                if ($cmp !== 0) return $cmp;
+                return (mt_rand(0, 1) === 0) ? -1 : 1;
+            });
+        };
+        foreach (['Defesa', 'Meio', 'Ataque', 'Outros'] as $g) {
+            $ordenador($grupos[$g]);
+        }
+
+        // 1) PASSO DE OBRIGATÓRIOS POR POSIÇÃO (se houver lastro suficiente)
+        //    Tenta alocar 1 Defesa, 1 Meio e 1 Ataque por time, em serpentina.
+        $sentido = 1; // 1 = 0..N-1 / -1 = N-1..0
+        foreach (['Defesa', 'Meio', 'Ataque'] as $pos) {
+            if (empty($grupos[$pos])) {
+                continue; // não há ninguém nessa posição; pula
+            }
+
+            $indices = range(0, $qtdTimes - 1);
+            if ($sentido === -1) {
+                $indices = array_reverse($indices);
+            }
+
+            foreach ($indices as $idxTime) {
+                if (empty($grupos[$pos])) {
+                    break; // acabou o estoque da posição
+                }
+                if (count($buckets[$idxTime]['ids']) >= $qtdPorTime) {
+                    continue; // time já está cheio
+                }
+
+                // Aloca o melhor (topo) disponível da posição
+                $playerId = array_shift($grupos[$pos]);
+                // Evita duplicidade por segurança
+                if (in_array($playerId, $buckets[$idxTime]['ids'], true)) {
+                    continue;
+                }
+
+                $buckets[$idxTime]['ids'][] = $playerId;
+                $buckets[$idxTime]['pos'][$pos] += 1;
+            }
+
+            $sentido *= -1; // serpentina
+        }
+
+        // 2) PREENCHIMENTO GERAL (snake-draft por tiers, respeitando capacidade)
+        // Junta todos os remanescentes (ordem por rating já aplicada)
+        $restantes = array_merge($grupos['Defesa'], $grupos['Meio'], $grupos['Ataque'], $grupos['Outros']);
+        $ordenador($restantes); // reordena geral para manter o critério de força
+
+        // Snake por tiers do tamanho do nº de times
+        $tiers = array_chunk($restantes, $qtdTimes);
+        $sentido = 1;
+        foreach ($tiers as $tier) {
+            shuffle($tier); // aleatoriza dentro do tier
+
+            $ordem = range(0, $qtdTimes - 1);
+            if ($sentido === -1) $ordem = array_reverse($ordem);
+
+            $i = 0;
+            foreach ($ordem as $idxTime) {
+                if (!isset($tier[$i])) break;
+                if (count($buckets[$idxTime]['ids']) < $qtdPorTime) {
+                    $buckets[$idxTime]['ids'][] = $tier[$i];
+                } else {
+                    // tenta colocar em outro time que ainda tenha vaga
+                    $alocado = false;
+                    foreach ($ordem as $altIdx) {
+                        if (count($buckets[$altIdx]['ids']) < $qtdPorTime) {
+                            $buckets[$altIdx]['ids'][] = $tier[$i];
+                            $alocado = true;
+                            break;
+                        }
+                    }
+                    // se não conseguiu alocar, descarta (capacidade total atingido
+                }
+                $i++;
+            }
+
+            $sentido *= -1;
+        }
+
+        // 3) Monta retorno
+        $result = [];
+        for ($i = 0; $i < $qtdTimes; $i++) {
+            $result[] = [
+                'nome'      => 'Time ' . ($i + 1),
+                'jogadores' => $buckets[$i]['ids'],
+            ];
+        }
+
+        return $result;
+    }
+
+
+    /**
+ * Gera duas distribuições distintas (para nº1 e nº2) usando seeds diferentes.
+ *
+ * @return array{0:array,1:array} [timesSorteio1, timesSorteio2]
+ */
+    private function distribuirDuplo(array $jogadoresIds, int $qtdTimes, int $qtdPorTime): array
+    {
+        $ratings = $this->calcularNotasJogadores($jogadoresIds);
+
+        $seed1 = random_int(1, PHP_INT_MAX);
+        $seed2 = random_int(1, PHP_INT_MAX);
+        while ($seed2 === $seed1) {
+            $seed2 = random_int(1, PHP_INT_MAX);
+        }
+
+        $times1 = $this->montarTimes($jogadoresIds, $ratings, $qtdTimes, $qtdPorTime, $seed1);
+        $times2 = $this->montarTimes($jogadoresIds, $ratings, $qtdTimes, $qtdPorTime, $seed2);
+
+        return [$times1, $times2];
+    }
+
+        /**
+     * Persiste os times e jogadores no banco.
+     *
+     * @param  \App\Models\Sorteio $sorteio
+     * @param  array<int,array{nome:string,jogadores:int[]}> $timesDistribuidos
+     */
+    private function persistirTimesEJogadores(Sorteio $sorteio, array $timesDistribuidos): void
+    {
+        foreach ($timesDistribuidos as $t) {
+            $time = SorteioTime::create([
+                'sorteio_id' => $sorteio->id,
+                'nome'       => $t['nome'],
+                'media'      => null, // calculada depois/na exibição
+            ]);
+
+            foreach ($t['jogadores'] as $jogadorId) {
+                SorteioTimeJogador::create([
+                    'sorteio_time_id' => $time->id,
+                    'jogador_id'      => $jogadorId,
+                    'media'           => null, // opcional; calculamos on-demand
+                ]);
+            }
+        }
+    }
+
+    public function rascunhosDoDia(Request $request)
+    {
+        $data = $request->query('data', Carbon::today()->toDateString());
+
+        $rascunhos = Sorteio::with(['times.jogadores.jogador.user'])
+            ->whereDate('data', $data)
+            ->where('status', 'rascunho')
+            ->orderBy('tentativa')          // 1 e 2
+            ->get();
+
+        return response()->json($rascunhos);
+    }
+    public function publicarDupla(Request $request)
+    {
+        $request->validate([
+            'data' => 'required|date',
+        ]);
+
+        $data = Carbon::parse($request->input('data'))->toDateString();
+
+        // Busca as últimas 2 tentativas em rascunho desse dia
+        $dupla = Sorteio::whereDate('data', $data)
+            ->where('status', 'rascunho')
+            ->orderByDesc('tentativa')      // caso haja mais de uma dupla, pega a mais recente
+            ->take(2)
+            ->get();
+
+        if ($dupla->count() !== 2) {
+            return response()->json(['message' => 'Não há duas tentativas em rascunho para publicar.'], 422);
+        }
+
+        DB::transaction(function () use ($data, $dupla) {
+            // Desativa qualquer votação ativa do mesmo dia
+            Sorteio::whereDate('data', $data)
+                ->where('emvotacao', 1)
+                ->update(['emvotacao' => 0, 'status' => 'ativo']); // mantém ativos, apenas tira de votação
+
+            // Publica a dupla
+            Sorteio::whereIn('id', $dupla->pluck('id'))
+                ->update(['status' => 'ativo', 'emvotacao' => 1]);
+        });
+
+        return response()->json([
+            'message' => 'Dupla publicada para votação.',
+            'ids_publicados' => $dupla->pluck('id'),
+            'data' => $data,
+        ], 200);
+    }
+
+    public function votacaoAtivaDoDia(Request $request)
+    {
+        $data = $request->query('data', Carbon::today()->toDateString());
+
+        $sorteios = Sorteio::with(['times.jogadores.jogador.user'])
+            ->whereDate('data', $data)
+            ->where('emvotacao', 1)
+            ->withCount('votos')    // precisa da relação votos() no model
+            ->orderBy('tentativa')
+            ->get();
+
+        return response()->json($sorteios);
+    }
+
+    public function votos()
+    {
+        return $this->hasMany(SorteioVoto::class, 'sorteio_id');
+    }
+
+    public function fecharVotacao(Request $request)
+    {
+        $request->validate([
+            'data' => 'required|date',
+        ]);
+
+        $data = Carbon::parse($request->input('data'))->toDateString();
+
+        $emVotacao = Sorteio::whereDate('data', $data)
+            ->where('emvotacao', 1)
+            ->withCount('votos')
+            ->orderBy('tentativa')
+            ->get();
+
+        if ($emVotacao->count() !== 2) {
+            return response()->json(['message' => 'Não há exatamente dois sorteios em votação para encerrar.'], 422);
+        }
+
+        $a = $emVotacao[0];
+        $b = $emVotacao[1];
+
+        $vencedor = $a->votos_count >= $b->votos_count ? $a : $b;
+        $perdedor = $vencedor->id === $a->id ? $b : $a;
+
+        DB::transaction(function () use ($vencedor, $perdedor) {
+            // tira da votação
+            Sorteio::whereIn('id', [$vencedor->id, $perdedor->id])
+                ->update(['emvotacao' => 0]);
+
+            // aplica status finais
+            $vencedor->update(['status' => 'confirmado']);
+            $perdedor->update(['status' => 'descartado']);
+        });
+
+        return response()->json([
+            'message' => 'Votação encerrada.',
+            'vencedor' => [
+                'id' => $vencedor->id,
+                'tentativa' => $vencedor->tentativa,
+                'votos' => $vencedor->votos_count,
+            ],
+            'descartado' => [
+                'id' => $perdedor->id,
+                'tentativa' => $perdedor->tentativa,
+                'votos' => $perdedor->votos_count,
+            ],
+        ]);
+    }
 }
+
+
+
+
+
