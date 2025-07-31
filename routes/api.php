@@ -43,7 +43,7 @@ Route::middleware(['auth:api'])->group(function () {
                    // publica um par e despublica os demais do dia
         // NOVA//LISTAGENS
         Route::get('/', [SorteioController::class, 'index']);
-        Route::get('/rascunhos', [SorteioController::class, 'rascunhosDoDia']);
+        Route::get('/rascunhos-dia', [SorteioController::class, 'rascunhosDoDia']);
         Route::get('/votacao-ativa', [SorteioController::class, 'votacaoAtivaDoDia']); // ?data=YYYY-MM-DD (opcional)
         Route::get('/ativos', [SorteioController::class, 'ativos']);
         Route::get('/por-data', [SorteioController::class, 'porData']);                  // lista por data (opcional)
