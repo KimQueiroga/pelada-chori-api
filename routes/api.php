@@ -40,7 +40,6 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('/duplo-completo', [SorteioController::class, 'storeDuploCompleto']); 
         Route::post('/publicar', [SorteioController::class, 'publicarPar']);
         Route::post('/fechar-votacao', [SorteioController::class, 'fecharVotacao']);  
-                   // publica um par e despublica os demais do dia
         // NOVA//LISTAGENS
         Route::get('/', [SorteioController::class, 'index']);
         Route::get('/rascunhos-dia', [SorteioController::class, 'rascunhosDoDia']);
@@ -49,20 +48,22 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('/por-data', [SorteioController::class, 'porData']);                  // lista por data (opcional)
         Route::get('/{id}', [SorteioController::class, 'show']);
         Route::delete('/{id}', [SorteioController::class, 'destroy']);
-    //  TIMES E JOGADORES
-    Route::prefix('/{sorteio}/times')->group(function () {
-        Route::post('/', [SorteioTimeController::class, 'store']);
-        Route::get('/', [SorteioTimeController::class, 'index']);
-            
-    Route::prefix('/{time}/jogadores')->group(function () {
-        Route::post('/', [SorteioTimeJogadorController::class, 'store']);
-        Route::get('/', [SorteioTimeJogadorController::class, 'index']);
-       });
-    });
-
+         // VOTOS POR SORTEIO
         Route::prefix('/{sorteio}/votos')->group(function () {
-            Route::post('/', [SorteioVotoController::class, 'store']);
-            Route::get('/', [SorteioVotoController::class, 'index']);
+            Route::post('/', [SorteioVotoController::class, 'store']); // votar neste sorteio
+            Route::get('/', [SorteioVotoController::class, 'index']);  // contagem/listagem de votos deste sorteio
+        });
+        // RESUMO DA DUPLA EM VOTAÇÃO (FORA do grupo {sorteio}/votos)
+        Route::get('/votacao-ativa/resumo', [SorteioVotoController::class, 'resumoDiaAtual']);
+        //  TIMES E JOGADORES
+        Route::prefix('/{sorteio}/times')->group(function () {
+            Route::post('/', [SorteioTimeController::class, 'store']);
+            Route::get('/', [SorteioTimeController::class, 'index']);
+                
+            Route::prefix('/{time}/jogadores')->group(function () {
+                Route::post('/', [SorteioTimeJogadorController::class, 'store']);
+                Route::get('/', [SorteioTimeJogadorController::class, 'index']);
+            });
         });
     });
 });
