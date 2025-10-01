@@ -37,4 +37,10 @@ class Sorteio extends Model
     {
         return $this->hasMany(SorteioVoto::class);
     }
+
+        public function votosCount(): int
+    {
+        return $this->votos()->count();
+    }
+
 }
