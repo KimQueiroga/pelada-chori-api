@@ -10,6 +10,9 @@ use App\Models\SorteioTime;
 use App\Models\SorteioTimeJogador;
 use App\Models\Voto;
 use App\Models\SorteioVoto;
+use App\Services\DrawService;
+use App\DTOs\Player;
+
 
 use App\Models\Jogador;
 
@@ -115,70 +118,104 @@ class SorteioController extends Controller
      *   "estrategia": "balanceado" | "random"    // opcional, default "balanceado"
      * }
      */
-    public function storeDuploCompleto(Request $request)
-    {
-        $request->validate([
-            'data' => 'required|date',
-            'descricao' => 'nullable|string',
-            'quantidade_times' => 'required|integer|min:1',
-            'quantidade_jogadores_time' => 'required|integer|min:1',
-            'jogadores_ids' => 'required|array|min:1',
-            'jogadores_ids.*' => 'integer|exists:jogadores,id',
-        ]);
+    public function storeDuploCompleto(Request $request, DrawService $draw)
+{
+    $request->validate([
+        'data' => 'required|date',
+        'descricao' => 'nullable|string',
+        'quantidade_times' => 'required|integer|min:2',
+        'quantidade_jogadores_time' => 'required|integer|min:1',
+        'jogadores_ids' => 'required|array|min:1',
+        'jogadores_ids.*' => 'integer|exists:jogadores,id',
+        'limite' => 'nullable|numeric', // opcional: tolerância de médias (default 0.10)
+    ]);
 
-        $data = Carbon::parse($request->input('data'))->toDateString();
+    $data = \Carbon\Carbon::parse($request->input('data'))->toDateString();
+    $qtTimes = (int) $request->input('quantidade_times');
+    $qtPorTime = (int) $request->input('quantidade_jogadores_time');
+    $ids = $request->input('jogadores_ids');
+    $limit = $request->float('limite', 0.10);
 
-        // próxima tentativa do dia
-        $nextTentativa = (Sorteio::whereDate('data', $data)->max('tentativa') ?? 0) + 1;
-
-        // distribui (exemplo simples/aleatório equilibrado por média futura)
-        [$times1, $times2] = $this->distribuirDuplo(
-            $request->input('jogadores_ids'),
-            (int)$request->input('quantidade_times'),
-            (int)$request->input('quantidade_jogadores_time')
-        );
-
-        DB::beginTransaction();
-        try {
-            // cria nº1
-            $s1 = Sorteio::create([
-                'data' => $data,
-                'descricao' => $request->input('descricao'),
-                'numero' => 1,
-                'quantidade_times' => $request->input('quantidade_times'),
-                'quantidade_jogadores_time' => $request->input('quantidade_jogadores_time'),
-                'tentativa' => $nextTentativa,
-                'status' => 'rascunho',
-                'em_votacao' => false,
-            ]);
-            $this->persistirTimesEJogadores($s1, $times1);
-
-            // cria nº2
-            $s2 = Sorteio::create([
-                'data' => $data,
-                'descricao' => $request->input('descricao'),
-                'numero' => 2,
-                'quantidade_times' => $request->input('quantidade_times'),
-                'quantidade_jogadores_time' => $request->input('quantidade_jogadores_time'),
-                'tentativa' => $nextTentativa,
-                'status' => 'rascunho',
-                'em_votacao' => false,
-            ]);
-            $this->persistirTimesEJogadores($s2, $times2);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Par de sorteios criado como rascunho.',
-                'tentativa' => $nextTentativa,
-                'sorteio_1' => $s1->load('times.jogadores'),
-                'sorteio_2' => $s2->load('times.jogadores'),
-            ], 201);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
+    // conferência de capacidade
+    $cap = $qtTimes * $qtPorTime;
+    if (count($ids) !== $cap) {
+        return response()->json([
+            'error' => "Quantidade de jogadores (".count($ids).") deve ser exatamente igual à capacidade ($cap)."
+        ], 422);
     }
+
+    // médias (você já tem este método; usa 3.0 para quem não tem votos)
+    $ratings = $this->calcularNotasJogadores($ids);
+
+    // nome + posição
+    $dadosJog = \App\Models\Jogador::whereIn('id', $ids)
+        ->select('id','nome','apelido','posicao')
+        ->get()
+        ->keyBy('id');
+
+    // monta DTOs Player (posição MAIÚSCULA)
+    $players = [];
+    foreach ($ids as $id) {
+        $j = $dadosJog[$id];
+        $nome = trim($j->apelido ?: $j->nome ?: ('Jogador '.$id));
+        $pos = strtoupper($j->posicao ?? 'MEIO'); // fallback MEIO
+        if (!in_array($pos, ['DEFESA','MEIO','ATAQUE'])) $pos = 'MEIO';
+        $media = round((float)($ratings[$id] ?? 3.0), 2);
+        $players[] = new Player($id, $nome, $media, $pos);
+    }
+
+    // próxima tentativa do dia
+    $nextTentativa = (\App\Models\Sorteio::whereDate('data', $data)->max('tentativa') ?? 0) + 1;
+
+    // GERA OS DOIS SORTEIOS
+    try {
+        $sorteio1Teams = $draw->makeSorteio1($players, $qtTimes, $qtPorTime, $limit);
+        $sorteio2Teams = $draw->makeSorteio2($players, $qtTimes, $qtPorTime, $limit);
+    } catch (\Throwable $e) {
+        return response()->json(['error' => $e->getMessage()], 422);
+    }
+
+    \DB::beginTransaction();
+    try {
+        // cria nº1
+        $s1 = \App\Models\Sorteio::create([
+            'data' => $data,
+            'descricao' => $request->input('descricao'),
+            'numero' => 1,
+            'quantidade_times' => $qtTimes,
+            'quantidade_jogadores_time' => $qtPorTime,
+            'tentativa' => $nextTentativa,
+            'status' => 'rascunho',
+            'em_votacao' => false,
+        ]);
+        $this->persistTeamsFromDTO($s1, $sorteio1Teams);
+
+        // cria nº2
+        $s2 = \App\Models\Sorteio::create([
+            'data' => $data,
+            'descricao' => $request->input('descricao'),
+            'numero' => 2,
+            'quantidade_times' => $qtTimes,
+            'quantidade_jogadores_time' => $qtPorTime,
+            'tentativa' => $nextTentativa,
+            'status' => 'rascunho',
+            'em_votacao' => false,
+        ]);
+        $this->persistTeamsFromDTO($s2, $sorteio2Teams);
+
+        \DB::commit();
+
+        return response()->json([
+            'message'   => 'Par de sorteios criado como rascunho.',
+            'tentativa' => $nextTentativa,
+            'sorteio_1' => $s1->load('times.jogadores'),
+            'sorteio_2' => $s2->load('times.jogadores'),
+        ], 201);
+    } catch (\Throwable $e) {
+        \DB::rollBack();
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
 
     
     /**
@@ -602,6 +639,33 @@ class SorteioController extends Controller
             }
         }
     }
+
+    /**
+ * Persiste times/jogadores a partir dos DTOs Team/Player
+ * @param \App\Models\Sorteio $sorteio
+ * @param \App\DTOs\Team[] $teams
+ */
+    private function persistTeamsFromDTO(\App\Models\Sorteio $sorteio, array $teams): void
+    {
+        foreach ($teams as $i => $team) {
+            $time = \App\Models\SorteioTime::create([
+                'sorteio_id' => $sorteio->id,
+                'nome'       => 'Time '.($i + 1),
+                'media'      => round($team->avg(), 2),
+            ]);
+
+            foreach ($team->players as $p) {
+                \App\Models\SorteioTimeJogador::create([
+                    'sorteio_time_id' => $time->id,
+                    'jogador_id'      => $p->id,
+                    'media'           => $p->media, // opcional
+                ]);
+            }
+        }
+    }
+
+
+
 
     public function rascunhosDoDia(Request $request)
     {
