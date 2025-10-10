@@ -29,6 +29,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/jogador', [JogadorController::class, 'store']);
     Route::get('/jogadores', [JogadorController::class, 'index']);
     Route::get('/meus-dados', [JogadorController::class, 'meusDados']);
+    Route::put('/meus-dados', [JogadorController::class, 'updateMeusDados']);
     Route::get('/jogadores/todos', [JogadorController::class, 'todos']);
 
     // Votações & Votos
