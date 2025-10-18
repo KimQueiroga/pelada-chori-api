@@ -10,10 +10,17 @@ use App\Http\Controllers\SorteioController;
 use App\Http\Controllers\SorteioTimeController;
 use App\Http\Controllers\SorteioTimeJogadorController;
 use App\Http\Controllers\SorteioVotoController;
+use App\Http\Controllers\PasswordResetController;
+
 
 // ROTAS PÚBLICAS (sem autenticação)
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);
+// Reset de senha
+Route::post('/password/forgot', [PasswordResetController::class, 'sendCode'])->middleware('throttle:5,1');   // 5 req / min
+Route::post('/password/verify', [PasswordResetController::class, 'verifyCode'])->middleware('throttle:10,1');
+Route::post('/password/reset',  [PasswordResetController::class, 'reset'])->middleware('throttle:10,1');
+
 
 // Refresh NÃO usa auth:api (permite token expirado, ainda dentro do refresh_ttl)
 Route::post('/auth/refresh', [AuthController::class, 'refresh']);
@@ -24,6 +31,8 @@ Route::middleware(['auth:api'])->group(function () {
     // Auth util
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/me',           [AuthController::class, 'me']);
+
+    
 
     // Jogadores
     Route::post('/jogador', [JogadorController::class, 'store']);
