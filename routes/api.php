@@ -60,6 +60,7 @@ Route::middleware(['auth:api'])->group(function () {
 
         // listagens
         Route::get('/', [SorteioController::class, 'index']);
+        Route::get('/exibir-do-dia', [SorteioController::class, 'exibirDoDia']); // NOVA
         Route::get('/rascunhos-dia', [SorteioController::class, 'rascunhosDoDia']);
         Route::get('/votacao-ativa', [SorteioController::class, 'votacaoAtivaDoDia']); // ?data=YYYY-MM-DD (opcional)
         Route::get('/ativos', [SorteioController::class, 'ativos']);
@@ -72,6 +73,7 @@ Route::middleware(['auth:api'])->group(function () {
             Route::post('/', [SorteioVotoController::class, 'store']); // votar neste sorteio
             Route::get('/', [SorteioVotoController::class, 'index']);  // contagem/listagem de votos
         });
+
 
         // resumo fora do escopo {sorteio}/votos
         Route::get('/votacao-ativa/resumo', [SorteioVotoController::class, 'resumoDiaAtual']);

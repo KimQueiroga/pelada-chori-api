@@ -913,6 +913,56 @@ class SorteioController extends Controller
             ],
         ], 200);
     }
+
+    // app/Http/Controllers/SorteioController.php
+
+    public function exibirDoDia(Request $request)
+    {
+        $data = Carbon::parse($request->query('data', now()->toDateString()))
+            ->toDateString();
+
+        // 1) Tenta trazer os que estão em votação
+        $emVotacao = Sorteio::whereDate('data', $data)
+            ->where('em_votacao', true)
+            ->withCount('votos')
+            ->with(['times.jogadores.jogador.user'])
+            ->orderBy('numero')
+            ->get();
+
+        if ($emVotacao->isNotEmpty()) {
+            return response()->json([
+                'modo'     => 'votacao',      // para a UI saber o contexto
+                'data'     => $data,
+                'sorteios' => $emVotacao,     // contém votos_count, times, jogadores
+            ]);
+        }
+
+        // 2) Sem votação: traz os confirmados do dia (normalmente 1 – o vencedor)
+        $confirmados = Sorteio::whereDate('data', $data)
+            ->where('status', 'confirmado')
+            ->withCount('votos')
+            ->with(['times.jogadores.jogador.user'])
+            ->orderBy('numero')
+            ->get();
+
+        if ($confirmados->isNotEmpty()) {
+            return response()->json([
+                'modo'     => 'confirmado',
+                'data'     => $data,
+                'sorteios' => $confirmados,   // idem: votos_count, times, jogadores
+            ]);
+        }
+
+        // 3) Nada a exibir hoje
+        return response()->json([
+            'modo'     => 'vazio',
+            'data'     => $data,
+            'sorteios' => [],
+        ], 200);
+    }
+
+
+
 }
 
 
