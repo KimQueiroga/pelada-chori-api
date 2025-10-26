@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Http\Controllers;
 
 use App\Models\Sorteio;
@@ -12,32 +11,23 @@ use Illuminate\Support\Facades\DB;
 
 class SorteioVotoController extends Controller
 {
-    /**
-     * POST /sorteios/{sorteio}/votos
-     * Regras:
-     * - Apenas jogador participante pode votar.
-     * - Um voto por jogador em APENAS UM dos sorteios em votação no mesmo dia.
-     */
     public function store(Request $request, Sorteio $sorteio)
     {
-        $request->validate([
-            'jogador_id' => 'required|exists:jogadores,id',
-        ]);
+        $user    = Auth::user();
+        $jogador = optional($user)->jogador;
 
-        $user = Auth::user();
-
-        // (opcional, mas recomendado) jogador do request deve ser o do usuário logado
-        if (!$user || !$user->jogador || (int)$user->jogador->id !== (int)$request->jogador_id) {
-            return response()->json([
-                'message' => 'Você só pode votar como o seu próprio jogador.'
-            ], 403);
+        if (!$user || !$jogador) {
+            return response()->json(['message' => 'Usuário não possui jogador vinculado.'], 403);
         }
 
-        // 1) Confirma se o jogador participa do sorteio (em algum time deste sorteio)
+        if (!$sorteio->em_votacao) {
+            return response()->json(['message' => 'Este sorteio não está em votação.'], 422);
+        }
+
         $participa = SorteioTimeJogador::whereIn('sorteio_time_id', function ($q) use ($sorteio) {
                 $q->select('id')->from('sorteio_times')->where('sorteio_id', $sorteio->id);
             })
-            ->where('jogador_id', $request->jogador_id)
+            ->where('jogador_id', $jogador->id)
             ->exists();
 
         if (!$participa) {
@@ -46,14 +36,13 @@ class SorteioVotoController extends Controller
             ], 403);
         }
 
-        // 2) Bloqueia voto duplo na DUPLA do dia: se já votou em QUALQUER sorteio da dupla do mesmo dia, não pode votar de novo.
         $idsDuplaDoDia = Sorteio::whereDate('data', $sorteio->data)
             ->where('em_votacao', true)
             ->pluck('id');
 
         if ($idsDuplaDoDia->isNotEmpty()) {
             $jaVotouNaDupla = SorteioVoto::whereIn('sorteio_id', $idsDuplaDoDia)
-                ->where('jogador_id', $request->jogador_id)
+                ->where('user_id', $user->id)
                 ->exists();
 
             if ($jaVotouNaDupla) {
@@ -63,12 +52,11 @@ class SorteioVotoController extends Controller
             }
         }
 
-        // 3) Registra o voto (há também o unique(sorteio_id, jogador_id) via migration)
         try {
             $voto = SorteioVoto::create([
                 'sorteio_id' => $sorteio->id,
-                'jogador_id' => $request->jogador_id,
                 'user_id'    => $user->id,
+                'jogador_id' => $jogador->id,
             ]);
 
             return response()->json([
@@ -76,39 +64,76 @@ class SorteioVotoController extends Controller
                 'voto'    => $voto,
             ], 201);
         } catch (\Throwable $e) {
-            // Em caso de violação de unique no banco, retorna erro amigável
             return response()->json([
                 'message' => 'Você já votou neste sorteio.',
-                'error'   => $e->getMessage(),
             ], 422);
         }
     }
 
     /**
      * GET /sorteios/{sorteio}/votos
-     * Retorna a contagem e (opcional) a listagem de votos do sorteio.
+     * ?detalhe=1  -> inclui a lista de votos (com foto do jogador)
      */
-    public function index(Sorteio $sorteio)
+    public function index(Request $request, Sorteio $sorteio)
     {
         $total = SorteioVoto::where('sorteio_id', $sorteio->id)->count();
 
-        // Se quiser, envie também os votos (ou nomes dos votantes)
-        // $votos = SorteioVoto::with('jogador.user:id,name')->where('sorteio_id', $sorteio->id)->get();
+        $payload = [
+            'sorteio_id'  => $sorteio->id,
+            'numero'      => $sorteio->numero,
+            'data'        => $sorteio->data,
+            'total_votos' => $total,
+        ];
 
-        return response()->json([
-            'sorteio_id' => $sorteio->id,
-            'numero'     => $sorteio->numero,
-            'data'       => $sorteio->data,
-            'total_votos'=> $total,
-            // 'votos'    => $votos,
-        ]);
+        if ($request->boolean('detalhe')) {
+            $user = Auth::user();
+
+            // <- AQUI: carregamos também a FOTO do jogador
+            $votos = SorteioVoto::with([
+                    'usuario:id,name',
+                    'jogador:id,apelido,nome,foto',
+                ])
+                ->where('sorteio_id', $sorteio->id)
+                ->orderByDesc('id')
+                ->get()
+                ->map(function ($v) {
+                    return [
+                        'id'            => $v->id,
+                        'user_id'       => $v->user_id,
+                        'user_name'     => optional($v->usuario)->name,
+                        'jogador_id'    => $v->jogador_id,
+                        'jogador_nome'  => optional($v->jogador)->apelido ?: optional($v->jogador)->nome,
+                        'jogador_foto'  => optional($v->jogador)->foto, // <- FOTO para a UI
+                        'created_at'    => $v->created_at,
+                    ];
+                })
+                ->values();
+
+            $meuVotoNaDupla = null;
+            if ($user) {
+                $idsDupla = Sorteio::whereDate('data', $sorteio->data)
+                    ->where('em_votacao', true)
+                    ->pluck('id');
+
+                if ($idsDupla->isNotEmpty()) {
+                    $meuVotoNaDupla = SorteioVoto::whereIn('sorteio_id', $idsDupla)
+                        ->where('user_id', $user->id)
+                        ->value('sorteio_id');
+                }
+            }
+
+            $payload['detalhes'] = [
+                'votos' => $votos,
+                'me' => [
+                    'votou'             => !is_null($meuVotoNaDupla),
+                    'sorteio_votado_id' => $meuVotoNaDupla,
+                ],
+            ];
+        }
+
+        return response()->json($payload);
     }
 
-    /**
-     * GET /sorteios/votacao-ativa/resumo
-     * Retorna a contagem dos votos para os sorteios que estão em votação HOJE.
-     * Útil para mostrar o placar da dupla.
-     */
     public function resumoDiaAtual()
     {
         $hoje = now()->toDateString();
