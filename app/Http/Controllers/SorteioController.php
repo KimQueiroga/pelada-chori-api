@@ -383,6 +383,7 @@ class SorteioController extends Controller
         return $times;
     }
 
+    // SorteioController.php
     public function publicarPar(Request $request)
     {
         $request->validate([
@@ -393,14 +394,13 @@ class SorteioController extends Controller
         $s1 = Sorteio::with('times')->findOrFail($request->sorteio_id_1);
         $s2 = Sorteio::with('times')->findOrFail($request->sorteio_id_2);
 
-        // validações de paridade
         if ($s1->data->toDateString() !== $s2->data->toDateString()) {
             return response()->json(['error' => 'Os dois sorteios devem ser do mesmo dia.'], 422);
         }
         if ($s1->tentativa !== $s2->tentativa) {
             return response()->json(['error' => 'Os dois sorteios devem ser da mesma tentativa.'], 422);
         }
-        if (!in_array($s1->numero, [1,2]) || !in_array($s2->numero, [1,2]) || $s1->numero === $s2->numero) {
+        if (!in_array($s1->numero,[1,2]) || !in_array($s2->numero,[1,2]) || $s1->numero === $s2->numero) {
             return response()->json(['error' => 'Deve haver um nº1 e um nº2.'], 422);
         }
 
@@ -408,22 +408,22 @@ class SorteioController extends Controller
         try {
             $data = $s1->data->toDateString();
 
-            // despublica/descarta todos do mesmo dia (por segurança)
+            // despublica qualquer votação do mesmo dia
             Sorteio::whereDate('data', $data)->update([
                 'em_votacao' => false,
-                'status' => DB::raw("CASE WHEN status='em_votacao' THEN 'encerrado' ELSE status END"),
+                'status'     => DB::raw("CASE WHEN status='em_votacao' THEN 'encerrado' ELSE status END"),
             ]);
 
-            // publica apenas o par escolhido
+            // publica o par
             $s1->update(['em_votacao' => true, 'status' => 'em_votacao']);
             $s2->update(['em_votacao' => true, 'status' => 'em_votacao']);
 
             DB::commit();
 
             return response()->json([
-                'message' => 'Par publicado para votação com sucesso.',
-                'data' => $data,
-                'tentativa' => $s1->tentativa,
+                'message'    => 'Par publicado para votação com sucesso.',
+                'data'       => $data,
+                'tentativa'  => $s1->tentativa,
                 'publicados' => [$s1->id, $s2->id],
             ], 200);
         } catch (\Throwable $e) {
@@ -809,12 +809,12 @@ class SorteioController extends Controller
         DB::transaction(function () use ($data, $dupla) {
             // Desativa qualquer votação ativa do mesmo dia
             Sorteio::whereDate('data', $data)
-                ->where('emvotacao', 1)
-                ->update(['emvotacao' => 0, 'status' => 'ativo']); // mantém ativos, apenas tira de votação
+                ->where('em_votacao', 1)
+                ->update(['em_votacao' => 0, 'status' => 'ativo']); // mantém ativos, apenas tira de votação
 
             // Publica a dupla
             Sorteio::whereIn('id', $dupla->pluck('id'))
-                ->update(['status' => 'ativo', 'emvotacao' => 1]);
+                ->update(['status' => 'ativo', 'em_votacao' => 1]);
         });
 
         return response()->json([
@@ -830,7 +830,7 @@ class SorteioController extends Controller
 
         $sorteios = Sorteio::with(['times.jogadores.jogador.user'])
             ->whereDate('data', $data)
-            ->where('emvotacao', 1)
+            ->where('em_votacao', 1)
             ->withCount('votos')    // precisa da relação votos() no model
             ->orderBy('tentativa')
             ->get();
@@ -843,53 +843,75 @@ class SorteioController extends Controller
         return $this->hasMany(SorteioVoto::class, 'sorteio_id');
     }
 
+    // SorteioController.php
     public function fecharVotacao(Request $request)
     {
         $request->validate([
-            'data' => 'required|date',
+            'data'         => 'required|date',
+            'vencedor_id'  => 'nullable|integer|exists:sorteios,id', // para desempate manual
         ]);
 
-        $data = Carbon::parse($request->input('data'))->toDateString();
+        $data = \Carbon\Carbon::parse($request->input('data'))->toDateString();
 
-        $emVotacao = Sorteio::whereDate('data', $data)
-            ->where('emvotacao', 1)
+        $em_votacao = Sorteio::whereDate('data', $data)
+            ->where('em_votacao', true)   // <- padronizado
             ->withCount('votos')
-            ->orderBy('tentativa')
+            ->orderBy('numero')
             ->get();
 
-        if ($emVotacao->count() !== 2) {
+        if ($em_votacao->count() !== 2) {
             return response()->json(['message' => 'Não há exatamente dois sorteios em votação para encerrar.'], 422);
         }
 
-        $a = $emVotacao[0];
-        $b = $emVotacao[1];
+        $a = $em_votacao[0];
+        $b = $em_votacao[1];
 
-        $vencedor = $a->votos_count >= $b->votos_count ? $a : $b;
-        $perdedor = $vencedor->id === $a->id ? $b : $a;
+        // regra normal
+        $vencedor = null; $perdedor = null;
+
+        if ($a->votos_count > $b->votos_count) {
+            $vencedor = $a; $perdedor = $b;
+        } elseif ($b->votos_count > $a->votos_count) {
+            $vencedor = $b; $perdedor = $a;
+        } else {
+            // EMPATE
+            if ($request->filled('vencedor_id')) {
+                $vencedor = [$a, $b][ (int)($request->vencedor_id === $b->id) ];
+                $perdedor = $vencedor->id === $a->id ? $b : $a;
+            } else {
+                return response()->json([
+                    'message'  => 'Empate detectado. Envie "vencedor_id" para desempatar.',
+                    'empate'   => [
+                        ['id' => $a->id, 'votos' => $a->votos_count],
+                        ['id' => $b->id, 'votos' => $b->votos_count],
+                    ],
+                ], 409);
+            }
+        }
 
         DB::transaction(function () use ($vencedor, $perdedor) {
-            // tira da votação
             Sorteio::whereIn('id', [$vencedor->id, $perdedor->id])
-                ->update(['emvotacao' => 0]);
+                ->update(['em_votacao' => false]);
 
-            // aplica status finais
             $vencedor->update(['status' => 'confirmado']);
             $perdedor->update(['status' => 'descartado']);
         });
 
         return response()->json([
-            'message' => 'Votação encerrada.',
+            'message'  => 'Votação encerrada.',
             'vencedor' => [
-                'id' => $vencedor->id,
+                'id'        => $vencedor->id,
+                'numero'    => $vencedor->numero,
                 'tentativa' => $vencedor->tentativa,
-                'votos' => $vencedor->votos_count,
+                'votos'     => $vencedor->votos_count,
             ],
             'descartado' => [
-                'id' => $perdedor->id,
+                'id'        => $perdedor->id,
+                'numero'    => $perdedor->numero,
                 'tentativa' => $perdedor->tentativa,
-                'votos' => $perdedor->votos_count,
+                'votos'     => $perdedor->votos_count,
             ],
-        ]);
+        ], 200);
     }
 }
 

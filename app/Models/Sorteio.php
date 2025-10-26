@@ -33,9 +33,9 @@ class Sorteio extends Model
         return $this->hasMany(SorteioTime::class);
     }
 
-    public function votos()
+     public function votos()
     {
-        return $this->hasMany(SorteioVoto::class);
+        return $this->hasMany(\App\Models\SorteioVoto::class, 'sorteio_id');
     }
 
         public function votosCount(): int
