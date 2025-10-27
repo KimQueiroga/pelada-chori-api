@@ -11,6 +11,8 @@ use App\Http\Controllers\SorteioTimeController;
 use App\Http\Controllers\SorteioTimeJogadorController;
 use App\Http\Controllers\SorteioVotoController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PartidaController;
+
 
 
 // ROTAS PÚBLICAS (sem autenticação)
@@ -56,7 +58,11 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('/', [SorteioController::class, 'store']);
         Route::post('/duplo-completo', [SorteioController::class, 'storeDuploCompleto']); 
         Route::post('/publicar', [SorteioController::class, 'publicarPar']);
-        Route::post('/fechar-votacao', [SorteioController::class, 'fecharVotacao']);  
+        Route::post('/fechar-votacao', [SorteioController::class, 'fecharVotacao']);
+        
+        // PARTIDAS de um sorteio confirmado
+        Route::get('/{sorteio}/partidas', [PartidaController::class, 'indexPorSorteio'])->whereNumber('sorteio');
+        Route::post('/{sorteio}/partidas', [PartidaController::class, 'store'])->whereNumber('sorteio');
 
         // listagens
         Route::get('/', [SorteioController::class, 'index']);
@@ -74,7 +80,6 @@ Route::middleware(['auth:api'])->group(function () {
             Route::get('/', [SorteioVotoController::class, 'index']);  // contagem/listagem de votos
         });
 
-
         // resumo fora do escopo {sorteio}/votos
         Route::get('/votacao-ativa/resumo', [SorteioVotoController::class, 'resumoDiaAtual']);
         // times e jogadores
@@ -87,6 +92,16 @@ Route::middleware(['auth:api'])->group(function () {
             });
         });
     });
+
+    Route::prefix('partidas')->group(function () {
+        Route::get('/{partida}', [PartidaController::class, 'show'])->whereNumber('partida');
+        Route::post('/{partida}/iniciar', [PartidaController::class, 'iniciar'])->whereNumber('partida');
+        Route::post('/{partida}/encerrar', [PartidaController::class, 'encerrar'])->whereNumber('partida');
+
+        Route::post('/{partida}/gols', [PartidaController::class, 'registrarGol'])->whereNumber('partida');
+        Route::delete('/{partida}/gols/{gol}', [PartidaController::class, 'removerGol'])
+            ->whereNumber('partida')->whereNumber('gol');
+  });
 });
 
 // Exemplo padrão
