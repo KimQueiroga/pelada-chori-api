@@ -12,6 +12,7 @@ use App\Http\Controllers\SorteioTimeJogadorController;
 use App\Http\Controllers\SorteioVotoController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PartidaController;
+use App\Http\Controllers\DestaquesController;
 
 
 
@@ -33,6 +34,9 @@ Route::middleware(['auth:api'])->group(function () {
     // Auth util
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/me',           [AuthController::class, 'me']);
+
+    // Destaques do mes
+    Route::get('/destaques/mes', [DestaquesController::class, 'mes']);
 
     
 
