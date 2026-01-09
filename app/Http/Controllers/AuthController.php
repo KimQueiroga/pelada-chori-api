@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
-
 class AuthController extends Controller
 {
     public function register(Request $request)
@@ -29,24 +28,58 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        // mantém compatibilidade: segue retornando 'user' e 'token'
         $token = JWTAuth::fromUser($user);
 
-        return response()->json(compact('user', 'token'), 201);
+        // Agora também devolvemos 'expires_in' (opcional no frontend)
+        return response()->json([
+            'user'       => $user,
+            'token'      => $token,
+            'expires_in' => auth('api')->factory()->getTTL() * 60, // em segundos
+        ], 201);
     }
 
     public function login(Request $request)
     {
         $credentials = $request->only('email', 'password');
 
-        if (!$token = JWTAuth::attempt($credentials)) {
+        if (!$token = auth('api')->attempt($credentials)) {
             return response()->json(['error' => 'Credenciais inválidas'], 401);
         }
 
-        return response()->json(compact('token'));
+        // mantém compatibilidade: resposta contém 'token'
+        return response()->json([
+            'token'      => $token,
+            // extra opcional:
+            'expires_in' => auth('api')->factory()->getTTL() * 60, // em segundos
+        ]);
     }
 
     public function me()
     {
         return response()->json(auth()->user());
+    }
+
+    // NOVO: refresh sem exigir auth:api (aceita token expirado dentro do refresh_ttl)
+    public function refresh(Request $request)
+    {
+        try {
+            $newToken = JWTAuth::parseToken()->refresh();
+            return response()->json([
+                'token'      => $newToken,
+                'expires_in' => auth('api')->factory()->getTTL() * 60,
+            ]);
+        } catch (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e) {
+            return response()->json(['error' => 'Token inválido'], 401);
+        } catch (\Tymon\JWTAuth\Exceptions\JWTException $e) {
+            return response()->json(['error' => 'Sem token'], 401);
+        }
+    }
+
+    // NOVO: logout invalida o token atual (se blacklist estiver habilitado)
+    public function logout()
+    {
+        auth('api')->invalidate(true);
+        return response()->json(['message' => 'Logged out']);
     }
 }
