@@ -17,6 +17,13 @@ class PartidaElencoService
             ->get();
     }
 
+    public static function substituicoesTodas(Partida $partida): Collection
+    {
+        return PartidaSubstituicao::with(['jogadorSai.user','jogadorEntra.user'])
+            ->where('partida_id', $partida->id)
+            ->get();
+    }
+
     public static function elencoAtivo(Partida $partida): array
     {
         $partida->load([
@@ -24,7 +31,8 @@ class PartidaElencoService
             'timeB.jogadores.jogador.user',
         ]);
 
-        $subs = self::substituicoesAtivas($partida);
+        $subsAtivas = self::substituicoesAtivas($partida);
+        $subsTodas = self::substituicoesTodas($partida);
 
         $timeA = $partida->timeA;
         $timeB = $partida->timeB;
@@ -33,22 +41,15 @@ class PartidaElencoService
             'time_a' => [
                 'id' => $timeA?->id,
                 'nome' => $timeA?->nome ?? 'Time A',
-                'jogadores' => self::montarElencoTime($timeA, $subs),
+                'jogadores' => self::montarElencoTime($timeA, $subsAtivas),
             ],
             'time_b' => [
                 'id' => $timeB?->id,
                 'nome' => $timeB?->nome ?? 'Time B',
-                'jogadores' => self::montarElencoTime($timeB, $subs),
+                'jogadores' => self::montarElencoTime($timeB, $subsAtivas),
             ],
-            'substituicoes' => $subs->map(function (PartidaSubstituicao $s) {
-                return [
-                    'id' => $s->id,
-                    'time_id' => $s->time_id,
-                    'jogador_sai' => $s->jogadorSai,
-                    'jogador_entra' => $s->jogadorEntra,
-                    'created_at' => $s->created_at,
-                ];
-            })->values(),
+            'substituicoes' => self::mapSubstituicoes($subsAtivas),
+            'substituicoes_todas' => self::mapSubstituicoes($subsTodas),
         ];
     }
 
@@ -97,5 +98,19 @@ class PartidaElencoService
         }
 
         return $base->values()->all();
+    }
+
+    private static function mapSubstituicoes(Collection $subs): array
+    {
+        return $subs->map(function (PartidaSubstituicao $s) {
+            return [
+                'id' => $s->id,
+                'time_id' => $s->time_id,
+                'jogador_sai' => $s->jogadorSai,
+                'jogador_entra' => $s->jogadorEntra,
+                'created_at' => $s->created_at,
+                'revertida_em' => $s->revertida_em,
+            ];
+        })->values()->all();
     }
 }

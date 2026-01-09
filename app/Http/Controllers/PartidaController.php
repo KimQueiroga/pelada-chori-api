@@ -181,9 +181,10 @@ class PartidaController extends Controller
         }
 
         DB::transaction(function () use ($partida, $placarA, $placarB, $empate, $vencedorTimeId) {
+            $agora = now();
             $partida->update([
                 'status'          => 'encerrada',
-                'encerrada_em'    => now(),
+                'encerrada_em'    => $agora,
                 'placar_a'        => $placarA,
                 'placar_b'        => $placarB,
                 'empate'          => $empate,
@@ -192,7 +193,7 @@ class PartidaController extends Controller
 
             PartidaSubstituicao::where('partida_id', $partida->id)
                 ->whereNull('revertida_em')
-                ->update(['revertida_em' => now()]);
+                ->update(['revertida_em' => $agora]);
 
             // registra vitórias para cada jogador do time vencedor (se houver)
             if (!$empate && $vencedorTimeId) {
