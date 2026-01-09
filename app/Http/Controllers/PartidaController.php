@@ -8,10 +8,12 @@ use App\Models\SorteioTimeJogador;
 use App\Models\Partida;
 use App\Models\PartidaGol;
 use App\Models\JogadorVitoria;
+use App\Models\PartidaSubstituicao;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Carbon\Carbon;
+use App\Services\PartidaElencoService;
 
 class PartidaController extends Controller
 {
@@ -99,25 +101,20 @@ class PartidaController extends Controller
             return response()->json(['message' => 'Gol deve ser de um dos times da partida.'], 422);
         }
 
-        // autor (e assistente, se houver) precisam estar nesse time
+        // autor (e assistente, se houver) precisam estar ativos no time
         $jogadorId = (int)$request->jogador_id;
         $assistId  = $request->filled('assist_jogador_id') ? (int)$request->assist_jogador_id : null;
 
-        $pertenceAutor = SorteioTimeJogador::where('sorteio_time_id', $timeId)
-            ->where('jogador_id', $jogadorId)
-            ->exists();
+        $elenco = PartidaElencoService::elencoAtivo($partida);
+        $idsAtivos = PartidaElencoService::idsAtivos($elenco);
+        $idsTime = ($timeId === $partida->time_a_id) ? $idsAtivos['time_a'] : $idsAtivos['time_b'];
 
-        if (!$pertenceAutor) {
-            return response()->json(['message' => 'Jogador autor do gol não pertence a este time.'], 422);
+        if (!in_array($jogadorId, $idsTime, true)) {
+            return response()->json(['message' => 'Jogador autor do gol nao esta ativo neste time.'], 422);
         }
 
-        if ($assistId) {
-            $pertenceAssist = SorteioTimeJogador::where('sorteio_time_id', $timeId)
-                ->where('jogador_id', $assistId)
-                ->exists();
-            if (!$pertenceAssist) {
-                return response()->json(['message' => 'Assistente não pertence a este time.'], 422);
-            }
+        if ($assistId && !in_array($assistId, $idsTime, true)) {
+            return response()->json(['message' => 'Assistente nao esta ativo neste time.'], 422);
         }
 
         DB::transaction(function () use ($partida, $timeId, $jogadorId, $assistId, $request) {
@@ -192,6 +189,10 @@ class PartidaController extends Controller
                 'empate'          => $empate,
                 'vencedor_time_id'=> $vencedorTimeId,
             ]);
+
+            PartidaSubstituicao::where('partida_id', $partida->id)
+                ->whereNull('revertida_em')
+                ->update(['revertida_em' => now()]);
 
             // registra vitórias para cada jogador do time vencedor (se houver)
             if (!$empate && $vencedorTimeId) {
