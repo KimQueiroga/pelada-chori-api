@@ -37,6 +37,7 @@ Route::middleware(['auth:api'])->group(function () {
 
     // Destaques do mes
     Route::get('/destaques/mes', [DestaquesController::class, 'mes']);
+    Route::get('/destaques/analitico', [DestaquesController::class, 'analitico']);
 
     
 
