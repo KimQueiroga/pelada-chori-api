@@ -12,7 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        $middleware->api(
+            prepend: [
+                \App\Http\Middleware\RequestContext::class,
+            ],
+            append: [
+                \App\Http\Middleware\RequestMetrics::class,
+            ],
+        );
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

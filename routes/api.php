@@ -14,12 +14,14 @@ use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PartidaController;
 use App\Http\Controllers\PartidaSubstituicaoController;
 use App\Http\Controllers\DestaquesController;
+use App\Http\Controllers\MetricsController;
 
 
 
 // ROTAS PÚBLICAS (sem autenticação)
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);
+Route::get('/metrics', MetricsController::class);
 // Reset de senha
 Route::post('/password/forgot', [PasswordResetController::class, 'sendCode'])->middleware('throttle:5,1');   // 5 req / min
 Route::post('/password/verify', [PasswordResetController::class, 'verifyCode'])->middleware('throttle:10,1');
