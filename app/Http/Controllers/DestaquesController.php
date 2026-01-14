@@ -112,143 +112,159 @@ class DestaquesController extends Controller
 
     private function topVitorias(Carbon $inicio, Carbon $fim, int $limite)
     {
-        $rows = JogadorVitoria::query()
+        $base = JogadorVitoria::query()
             ->join('partidas', 'partidas.id', '=', 'jogador_vitorias.partida_id')
-            ->join('jogadores', 'jogadores.id', '=', 'jogador_vitorias.jogador_id')
             ->whereNotNull('partidas.encerrada_em')
             ->whereBetween('partidas.encerrada_em', [$inicio, $fim])
-            ->groupBy('jogador_vitorias.jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+            ->groupBy('jogador_vitorias.jogador_id')
+            ->select([
                 'jogador_vitorias.jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
+
+        $extra = $this->extraStatsQuery('vitorias', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, null, $limite);
 
         return $this->mapTop($rows);
     }
 
     private function rankingVitorias($inicio, $fim, ?int $jogadorId, int $limite)
     {
-        $q = JogadorVitoria::query()
+        $base = JogadorVitoria::query()
             ->join('partidas', 'partidas.id', '=', 'jogador_vitorias.partida_id')
-            ->join('jogadores', 'jogadores.id', '=', 'jogador_vitorias.jogador_id')
-            ->whereNotNull('partidas.encerrada_em');
-
-        if ($inicio && $fim) {
-            $q->whereBetween('partidas.encerrada_em', [$inicio, $fim]);
-        }
-        if ($jogadorId) {
-            $q->where('jogador_vitorias.jogador_id', $jogadorId);
-        }
-
-        $rows = $q->groupBy('jogador_vitorias.jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+            ->whereNotNull('partidas.encerrada_em')
+            ->groupBy('jogador_vitorias.jogador_id')
+            ->select([
                 'jogador_vitorias.jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
+
+        if ($inicio && $fim) {
+            $base->whereBetween('partidas.encerrada_em', [$inicio, $fim]);
+        }
+
+        $extra = $this->extraStatsQuery('vitorias', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, $jogadorId, $limite);
 
         return $this->mapTop($rows);
     }
 
     private function topGols(Carbon $inicio, Carbon $fim, int $limite)
     {
-        $rows = PartidaGol::query()
-            ->join('jogadores', 'jogadores.id', '=', 'partida_gols.jogador_id')
+        $base = PartidaGol::query()
             ->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim])
-            ->groupBy('partida_gols.jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+            ->groupBy('partida_gols.jogador_id')
+            ->select([
                 'partida_gols.jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
+
+        $extra = $this->extraStatsQuery('gols', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, null, $limite);
 
         return $this->mapTop($rows);
     }
 
     private function rankingGols($inicio, $fim, ?int $jogadorId, int $limite)
     {
-        $q = PartidaGol::query()
-            ->join('jogadores', 'jogadores.id', '=', 'partida_gols.jogador_id');
-
-        if ($inicio && $fim) {
-            $q->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim]);
-        }
-        if ($jogadorId) {
-            $q->where('partida_gols.jogador_id', $jogadorId);
-        }
-
-        $rows = $q->groupBy('partida_gols.jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+        $base = PartidaGol::query()
+            ->groupBy('partida_gols.jogador_id')
+            ->select([
                 'partida_gols.jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
+
+        if ($inicio && $fim) {
+            $base->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim]);
+        }
+
+        $extra = $this->extraStatsQuery('gols', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, $jogadorId, $limite);
 
         return $this->mapTop($rows);
     }
 
     private function topAssistencias(Carbon $inicio, Carbon $fim, int $limite)
     {
-        $rows = PartidaGol::query()
-            ->join('jogadores', 'jogadores.id', '=', 'partida_gols.assist_jogador_id')
+        $base = PartidaGol::query()
             ->whereNotNull('partida_gols.assist_jogador_id')
             ->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim])
-            ->groupBy('partida_gols.assist_jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+            ->groupBy('partida_gols.assist_jogador_id')
+            ->select([
                 'partida_gols.assist_jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
+
+        $extra = $this->extraStatsQuery('assistencias', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, null, $limite);
 
         return $this->mapTop($rows);
     }
 
     private function rankingAssistencias($inicio, $fim, ?int $jogadorId, int $limite)
     {
-        $q = PartidaGol::query()
-            ->join('jogadores', 'jogadores.id', '=', 'partida_gols.assist_jogador_id')
-            ->whereNotNull('partida_gols.assist_jogador_id');
-
-        if ($inicio && $fim) {
-            $q->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim]);
-        }
-        if ($jogadorId) {
-            $q->where('partida_gols.assist_jogador_id', $jogadorId);
-        }
-
-        $rows = $q->groupBy('partida_gols.assist_jogador_id', 'jogadores.nome', 'jogadores.apelido')
-            ->orderByDesc('total')
-            ->orderBy('jogadores.nome')
-            ->limit($limite)
-            ->get([
+        $base = PartidaGol::query()
+            ->whereNotNull('partida_gols.assist_jogador_id')
+            ->groupBy('partida_gols.assist_jogador_id')
+            ->select([
                 'partida_gols.assist_jogador_id as jogador_id',
-                'jogadores.nome',
-                'jogadores.apelido',
                 DB::raw('COUNT(*) as total'),
             ]);
 
+        if ($inicio && $fim) {
+            $base->whereBetween('partida_gols.ocorreu_em', [$inicio, $fim]);
+        }
+
+        $extra = $this->extraStatsQuery('assistencias', $inicio, $fim);
+        $rows = $this->mergeStats($base, $extra, $jogadorId, $limite);
+
         return $this->mapTop($rows);
+    }
+
+    private function extraStatsQuery(string $coluna, ?Carbon $inicio, ?Carbon $fim)
+    {
+        $permitidas = ['gols', 'assistencias', 'vitorias'];
+        if (!in_array($coluna, $permitidas, true)) {
+            throw new \InvalidArgumentException('Coluna invalida.');
+        }
+
+        $q = DB::table('jogador_estatisticas_extras')
+            ->select('jogador_id', DB::raw('SUM('.$coluna.') as total'))
+            ->groupBy('jogador_id');
+
+        if ($inicio && $fim) {
+            $q->whereBetween('data_referencia', [
+                $inicio->toDateString(),
+                $fim->toDateString(),
+            ]);
+        }
+
+        return $q;
+    }
+
+    private function mergeStats($baseQuery, $extraQuery, ?int $jogadorId, int $limite)
+    {
+        $union = $baseQuery->unionAll($extraQuery);
+
+        $q = DB::query()
+            ->fromSub($union, 'stats')
+            ->join('jogadores', 'jogadores.id', '=', 'stats.jogador_id')
+            ->groupBy('stats.jogador_id', 'jogadores.nome', 'jogadores.apelido')
+            ->orderByDesc('total')
+            ->orderBy('jogadores.nome')
+            ->limit($limite)
+            ->select([
+                'stats.jogador_id as jogador_id',
+                'jogadores.nome',
+                'jogadores.apelido',
+                DB::raw('SUM(stats.total) as total'),
+            ]);
+
+        if ($jogadorId) {
+            $q->where('stats.jogador_id', $jogadorId);
+        }
+
+        return $q->get();
     }
 
     private function mapTop($rows)
