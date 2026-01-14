@@ -25,9 +25,9 @@ loki.source.file "laravel" {
 
 loki.write "grafana" {
   endpoint {
-    url = "https://logs-<region>.grafana.net/loki/api/v1/push"
+    url = "https://logs-prod-024.grafana.net/loki/api/v1/push"
     basic_auth {
-      username = "<logs_username>"
+      username = "1453092"
       password = "<logs_token>"
     }
   }
@@ -58,9 +58,9 @@ prometheus.scrape "pelada_api" {
 
 prometheus.remote_write "grafana" {
   endpoint {
-    url = "https://prometheus-<region>.grafana.net/api/prom/push"
+    url = "https://prometheus-prod-40-prod-sa-east-1.grafana.net/api/prom/push"
     basic_auth {
-      username = "<metrics_username>"
+      username = "2914831"
       password = "<metrics_token>"
     }
   }
