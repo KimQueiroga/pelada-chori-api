@@ -269,15 +269,29 @@ class DestaquesController extends Controller
 
     private function mapTop($rows)
     {
-        return $rows->map(function ($row) {
+        $items = [];
+        $posicaoAtual = 0;
+        $ultimoValor = null;
+
+        foreach ($rows as $index => $row) {
+            $valor = (int) $row->total;
+            if ($ultimoValor === null || $valor < $ultimoValor) {
+                $posicaoAtual = $index + 1;
+            }
+
             $apelido = is_string($row->apelido ?? null) ? trim($row->apelido) : '';
             $nome = $apelido !== '' ? $apelido : ($row->nome ?? ('Jogador '.$row->jogador_id));
 
-            return [
+            $items[] = [
                 'jogador_id' => (int) $row->jogador_id,
                 'nome' => $nome,
-                'valor' => (int) $row->total,
+                'valor' => $valor,
+                'posicao' => $posicaoAtual,
             ];
-        })->values();
+
+            $ultimoValor = $valor;
+        }
+
+        return collect($items);
     }
 }
