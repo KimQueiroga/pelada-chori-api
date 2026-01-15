@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\UserActivityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\Response;
 
 class MetricsController extends Controller
@@ -27,6 +29,22 @@ class MetricsController extends Controller
                 'type' => 'histogram',
                 'help' => 'HTTP request duration in milliseconds.',
             ],
+            'active_users_1d' => [
+                'type' => 'gauge',
+                'help' => 'Unique users active in the last 1 day.',
+            ],
+            'active_users_7d' => [
+                'type' => 'gauge',
+                'help' => 'Unique users active in the last 7 days.',
+            ],
+            'active_users_30d' => [
+                'type' => 'gauge',
+                'help' => 'Unique users active in the last 30 days.',
+            ],
+            'user_requests_1d' => [
+                'type' => 'gauge',
+                'help' => 'Total authenticated requests in the last 1 day.',
+            ],
         ];
 
         $lines = [];
@@ -34,6 +52,22 @@ class MetricsController extends Controller
             $lines[] = '# HELP '.$name.' '.$meta['help'];
             $lines[] = '# TYPE '.$name.' '.$meta['type'];
         }
+
+        $activeUsers1d = 0;
+        $activeUsers7d = 0;
+        $activeUsers30d = 0;
+        $userRequests1d = 0;
+        if (Schema::hasTable('user_activity_daily')) {
+            $activeUsers1d = UserActivityService::activeUsersCount(1);
+            $activeUsers7d = UserActivityService::activeUsersCount(7);
+            $activeUsers30d = UserActivityService::activeUsersCount(30);
+            $userRequests1d = UserActivityService::requestsTotalForDate(now()->toDateString());
+        }
+
+        $lines[] = 'active_users_1d '.$activeUsers1d;
+        $lines[] = 'active_users_7d '.$activeUsers7d;
+        $lines[] = 'active_users_30d '.$activeUsers30d;
+        $lines[] = 'user_requests_1d '.$userRequests1d;
 
         $rows = DB::table('metric_samples')
             ->orderBy('name')

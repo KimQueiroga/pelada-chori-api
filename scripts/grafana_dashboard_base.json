@@ -201,6 +201,94 @@
       ],
       "title": "Latencia media (ms)",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Usuarios unicos ativos (janela movel).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "active_users_1d{job=~\"$job\",environment=~\"$environment\"}",
+          "legendFormat": "1d",
+          "refId": "A"
+        },
+        {
+          "expr": "active_users_7d{job=~\"$job\",environment=~\"$environment\"}",
+          "legendFormat": "7d",
+          "refId": "B"
+        },
+        {
+          "expr": "active_users_30d{job=~\"$job\",environment=~\"$environment\"}",
+          "legendFormat": "30d",
+          "refId": "C"
+        }
+      ],
+      "title": "Usuarios ativos (1d/7d/30d)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Total de requests autenticados no dia.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "user_requests_1d{job=~\"$job\",environment=~\"$environment\"}",
+          "legendFormat": "requests 1d",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests autenticados (1d)",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 38,

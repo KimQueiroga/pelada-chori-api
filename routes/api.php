@@ -15,6 +15,7 @@ use App\Http\Controllers\PartidaController;
 use App\Http\Controllers\PartidaSubstituicaoController;
 use App\Http\Controllers\DestaquesController;
 use App\Http\Controllers\MetricsController;
+use App\Http\Controllers\UsageController;
 
 
 
@@ -41,6 +42,9 @@ Route::middleware(['auth:api'])->group(function () {
     // Destaques do mes
     Route::get('/destaques/mes', [DestaquesController::class, 'mes']);
     Route::get('/destaques/analitico', [DestaquesController::class, 'analitico']);
+
+    // Uso diário (usuarios ativos)
+    Route::get('/usage/daily', [UsageController::class, 'daily']);
 
     
 

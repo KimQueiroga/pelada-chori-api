@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Services\MetricsService;
+use App\Services\UserActivityService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -36,6 +37,11 @@ class RequestMetrics
             'method' => $method,
             'route' => $routeLabel,
         ], $durationMs);
+
+        $user = auth()->user();
+        if ($user) {
+            UserActivityService::record($user->id, $user->name);
+        }
 
         return $response;
     }
