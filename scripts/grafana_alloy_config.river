@@ -1,0 +1,67 @@
+// Grafana Alloy template for Pelada Chori API
+// Replace the placeholders with your Grafana Cloud credentials.
+
+logging {
+  level = "info"
+}
+
+// Logs (Loki)
+local.file_match "laravel_prod" {
+  path_targets = [
+    { "__path__" = "/var/www/html/storage/logs/laravel.log", "job" = "laravel-api", "environment" = "prod" },
+  ]
+}
+
+local.file_match "laravel_homol" {
+  path_targets = [
+    { "__path__" = "/var/www/html-homol/storage/logs/laravel.log", "job" = "laravel-api", "environment" = "homol" },
+  ]
+}
+
+loki.source.file "laravel" {
+  targets    = concat(local.file_match.laravel_prod.targets, local.file_match.laravel_homol.targets)
+  forward_to = [loki.write.grafana.receiver]
+}
+
+loki.write "grafana" {
+  endpoint {
+    url = "https://logs-prod-024.grafana.net/loki/api/v1/push"
+    basic_auth {
+      username = "1453092"
+      password = "<logs_token>"
+    }
+  }
+}
+
+// Metrics (Prometheus -> Grafana Cloud Mimir)
+prometheus.scrape "pelada_api" {
+  targets = [
+    {
+      "__address__" = "api.peladadochori.com",
+      "__scheme__" = "https",
+      "__metrics_path__" = "/api/metrics",
+      "environment" = "prod",
+    },
+    {
+      "__address__" = "api-homol.peladadochori.com",
+      "__scheme__" = "https",
+      "__metrics_path__" = "/api/metrics",
+      "environment" = "homol",
+    },
+  ]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafana.receiver]
+
+  // If METRICS_TOKEN is set, add the Authorization header here.
+  // bearer_token = "<metrics_token>"
+}
+
+prometheus.remote_write "grafana" {
+  endpoint {
+    url = "https://prometheus-prod-40-prod-sa-east-1.grafana.net/api/prom/push"
+    basic_auth {
+      username = "2914831"
+      password = "<metrics_token>"
+    }
+  }
+}

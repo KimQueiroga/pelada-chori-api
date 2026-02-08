@@ -27,6 +27,7 @@ class Partida extends Model
     public function vencedorTime() { return $this->belongsTo(SorteioTime::class, 'vencedor_time_id'); }
 
     public function gols()         { return $this->hasMany(PartidaGol::class); }
+    public function substituicoes(){ return $this->hasMany(PartidaSubstituicao::class); }
 
     // helpers
     public function isAndamento(): bool { return $this->status === 'em_andamento'; }

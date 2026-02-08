@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -12,7 +13,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        $middleware->api(
+            prepend: [
+                \App\Http\Middleware\RequestContext::class,
+            ],
+            append: [
+                \App\Http\Middleware\RequestMetrics::class,
+            ],
+        );
+    })
+    ->withSchedule(function (Schedule $schedule) {
+        $schedule->command('metrics:prune')->daily();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

@@ -12,13 +12,17 @@ use App\Http\Controllers\SorteioTimeJogadorController;
 use App\Http\Controllers\SorteioVotoController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PartidaController;
+use App\Http\Controllers\PartidaSubstituicaoController;
 use App\Http\Controllers\DestaquesController;
+use App\Http\Controllers\MetricsController;
+use App\Http\Controllers\UsageController;
 
 
 
 // ROTAS PÚBLICAS (sem autenticação)
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login',    [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+Route::post('/login',    [AuthController::class, 'login'])->middleware('throttle:5,1');
+Route::get('/metrics', MetricsController::class);
 // Reset de senha
 Route::post('/password/forgot', [PasswordResetController::class, 'sendCode'])->middleware('throttle:5,1');   // 5 req / min
 Route::post('/password/verify', [PasswordResetController::class, 'verifyCode'])->middleware('throttle:10,1');
@@ -38,6 +42,9 @@ Route::middleware(['auth:api'])->group(function () {
     // Destaques do mes
     Route::get('/destaques/mes', [DestaquesController::class, 'mes']);
     Route::get('/destaques/analitico', [DestaquesController::class, 'analitico']);
+
+    // Uso diário (usuarios ativos)
+    Route::get('/usage/daily', [UsageController::class, 'daily']);
 
     
 
@@ -100,10 +107,14 @@ Route::middleware(['auth:api'])->group(function () {
 
     Route::prefix('partidas')->group(function () {
         Route::get('/{partida}', [PartidaController::class, 'show'])->whereNumber('partida');
+        Route::get('/{partida}/elenco', [PartidaSubstituicaoController::class, 'elenco'])->whereNumber('partida');
         Route::post('/{partida}/iniciar', [PartidaController::class, 'iniciar'])->whereNumber('partida');
         Route::post('/{partida}/encerrar', [PartidaController::class, 'encerrar'])->whereNumber('partida');
 
         Route::post('/{partida}/gols', [PartidaController::class, 'registrarGol'])->whereNumber('partida');
+        Route::post('/{partida}/substituicoes', [PartidaSubstituicaoController::class, 'store'])->whereNumber('partida');
+        Route::post('/{partida}/substituicoes/{substituicao}/desfazer', [PartidaSubstituicaoController::class, 'desfazer'])
+            ->whereNumber('partida')->whereNumber('substituicao');
         Route::delete('/{partida}/gols/{gol}', [PartidaController::class, 'removerGol'])
             ->whereNumber('partida')->whereNumber('gol');
   });
