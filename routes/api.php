@@ -20,8 +20,8 @@ use App\Http\Controllers\UsageController;
 
 
 // ROTAS PÚBLICAS (sem autenticação)
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login',    [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+Route::post('/login',    [AuthController::class, 'login'])->middleware('throttle:5,1');
 Route::get('/metrics', MetricsController::class);
 // Reset de senha
 Route::post('/password/forgot', [PasswordResetController::class, 'sendCode'])->middleware('throttle:5,1');   // 5 req / min

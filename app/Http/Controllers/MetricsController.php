@@ -13,6 +13,9 @@ class MetricsController extends Controller
     public function __invoke(Request $request): Response
     {
         $token = config('metrics.token');
+        if (app()->environment('production') && empty($token)) {
+            return response('Metrics token not configured', 503);
+        }
         if ($token) {
             $bearer = $request->bearerToken();
             if (! hash_equals($token, (string) $bearer)) {
