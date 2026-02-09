@@ -16,6 +16,7 @@ use App\Http\Controllers\PartidaSubstituicaoController;
 use App\Http\Controllers\DestaquesController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\UsageController;
+use App\Http\Controllers\PushSubscriptionController;
 
 
 
@@ -45,6 +46,10 @@ Route::middleware(['auth:api'])->group(function () {
 
     // Uso diário (usuarios ativos)
     Route::get('/usage/daily', [UsageController::class, 'daily']);
+
+    // Web Push
+    Route::post('/push/subscribe', [PushSubscriptionController::class, 'subscribe']);
+    Route::post('/push/unsubscribe', [PushSubscriptionController::class, 'unsubscribe']);
 
     
 

@@ -11,6 +11,7 @@ use App\Models\SorteioTimeJogador;
 use App\Models\Voto;
 use App\Models\SorteioVoto;
 use App\Services\DrawService;
+use App\Services\PushService;
 use App\DTOs\Player;
 
 
@@ -420,6 +421,13 @@ class SorteioController extends Controller
 
             DB::commit();
 
+            app(PushService::class)->notifyAll([
+                'title' => 'Votação aberta',
+                'body' => "Nova votação do dia {$data} disponível.",
+                'url' => '/#/home',
+                'type' => 'votacao_aberta',
+            ]);
+
             return response()->json([
                 'message'    => 'Par publicado para votação com sucesso.',
                 'data'       => $data,
@@ -817,6 +825,13 @@ class SorteioController extends Controller
                 ->update(['status' => 'ativo', 'em_votacao' => 1]);
         });
 
+        app(PushService::class)->notifyAll([
+            'title' => 'Votação aberta',
+            'body' => "Nova votação do dia {$data} disponível.",
+            'url' => '/#/home',
+            'type' => 'votacao_aberta',
+        ]);
+
         return response()->json([
             'message' => 'Dupla publicada para votação.',
             'ids_publicados' => $dupla->pluck('id'),
@@ -897,6 +912,13 @@ class SorteioController extends Controller
             $perdedor->update(['status' => 'descartado']);
         });
 
+        app(PushService::class)->notifyAll([
+            'title' => 'Votação encerrada',
+            'body' => 'Resultado da votação disponível.',
+            'url' => '/#/home',
+            'type' => 'votacao_encerrada',
+        ]);
+
         return response()->json([
             'message'  => 'Votação encerrada.',
             'vencedor' => [
@@ -964,7 +986,6 @@ class SorteioController extends Controller
 
 
 }
-
 
 
 
