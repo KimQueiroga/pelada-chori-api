@@ -9,7 +9,7 @@ class DrawService
     /**
      * Sorteio 1 (restritivo)
      * - ≥1 DEF/MEI/ATA por time
-     * - Top3 e Bottom3 separados
+     * - TopN e BottomN separados (N = quantidade de times)
      * - Diferença de médias ≤ $limit
      * - Anti–3 DEF/ATA (máx. 2 por time)
      * - Swap corretivo com MEI mais próximo
@@ -18,13 +18,13 @@ class DrawService
     {
         $this->assertCapacity($players, $qtTimes, $qtPorTime);
 
-        [$low3, $high3] = $this->extremesSets($players);
+        [$lowN, $highN] = $this->extremesSets($players, $qtTimes);
 
         for ($i = 0; $i < $tries; $i++) {
             $teams = $this->buildRandomTeams($players, $qtTimes, $qtPorTime);
             if (!$this->allHaveCore($teams)) continue;
             if (!$this->antiThreeAll($teams)) continue;
-            if (!$this->extremesSeparated($teams, $low3, $high3)) continue;
+            if (!$this->extremesSeparated($teams, $lowN, $highN)) continue;
 
             if (!$this->diffOk($teams, $limit)) continue;
 
@@ -71,16 +71,17 @@ class DrawService
         }
     }
 
-    private function extremesSets(array $players): array
+    private function extremesSets(array $players, int $n): array
     {
         $sorted = $players;
         usort($sorted, fn($a,$b) => $a->media <=> $b->media);
-        $low3 = array_map(fn($p)=>$p->nome, array_slice($sorted, 0, 3));
-        $high3 = array_map(fn($p)=>$p->nome, array_slice($sorted, -3, 3));
-        return [array_flip($low3), array_flip($high3)];
+        $n = max(1, min($n, count($sorted)));
+        $lowN = array_map(fn($p)=>$p->nome, array_slice($sorted, 0, $n));
+        $highN = array_map(fn($p)=>$p->nome, array_slice($sorted, -$n, $n));
+        return [array_flip($lowN), array_flip($highN)];
     }
 
-    private function extremesSeparated(array $teams, array $low3, array $high3): bool
+    private function extremesSeparated(array $teams, array $lowSet, array $highSet): bool
     {
         $cover = function(array $set) use ($teams) {
             $seen = [];
@@ -91,7 +92,7 @@ class DrawService
             }
             return count($seen) === count($teams);
         };
-        return $cover($low3) && $cover($high3);
+        return $cover($lowSet) && $cover($highSet);
     }
 
     private function allHaveCore(array $teams): bool
